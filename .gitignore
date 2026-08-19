@@ -1,0 +1,19 @@
+# dependencies
+node_modules/
+
+# env files (use .env.example instead)
+.env
+.env.local
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# misc
+.DS_Store
+*.pem
+
+# production
+dist/
+build/
