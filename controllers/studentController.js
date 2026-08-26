@@ -52,7 +52,8 @@ const getStudents = async (req, res) => {
       `SELECT 
         bs.student_id,
         b.batch_id,
-        b.name AS batch_name
+        b.name AS batch_name,
+        b.fee AS batch_fee
       FROM batch_students bs, batches b
       WHERE bs.batch_id = b.batch_id`
     );
@@ -66,21 +67,27 @@ const getStudents = async (req, res) => {
       enrollmentMap.get(item.student_id).push({
         batch_id: item.batch_id,
         name: item.batch_name,
+        fee: Number(item.batch_fee || 0),
       });
     }
 
-    // Attach batch list and combined batch names to student object
+    // Attach batch list, combined batch names, and auto-calculated total fee to student object
     const result = students.map((s) => {
       const studentBatches = enrollmentMap.get(s.student_id) || [];
       const batchNames = studentBatches.map((b) => b.name).join(", ");
       const primaryBatchId =
         studentBatches.length > 0 ? studentBatches[0].batch_id : null;
+      const totalFee = studentBatches.reduce(
+        (sum, b) => sum + Number(b.fee || 0),
+        0
+      );
 
       return {
         ...s,
         batch_id: primaryBatchId,
         batch_name: batchNames || "Unassigned",
         batches: studentBatches,
+        total_fee: totalFee,
       };
     });
 

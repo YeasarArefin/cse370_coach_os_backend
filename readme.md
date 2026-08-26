@@ -157,7 +157,7 @@ cd <repository-folder>
    SMTP_PORT=587
    SMTP_USER=your-email@gmail.com
    SMTP_PASS=your-gmail-app-password
-   SMTP_FROM="Coaching Center" <your-email@gmail.com>
+   SMTP_FROM="CoachOS" <your-email@gmail.com>
    ```
 
 4. Start the backend development server:
@@ -189,8 +189,8 @@ cd <repository-folder>
    NEXTAUTH_SECRET=your-secure-random-secret-key
 
    # Backend API URLs
-   BACKEND_URL=http://localhost:5000
-   BACKEND_URL=http://localhost:5000
+   NEXT_PUBLIC_NEXT_PUBLIC_BACKEND_URL=http://localhost:5000
+   NEXT_PUBLIC_NEXT_PUBLIC_BACKEND_URL=http://localhost:5000
    ```
 
 4. Start the frontend development server:

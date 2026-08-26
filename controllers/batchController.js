@@ -14,6 +14,7 @@ const getBatches = async (req, res) => {
         u.email AS teacher_email,
         b.name,
         b.description,
+        b.fee,
         b.start_date,
         b.status,
         (SELECT COUNT(*) FROM batch_students bs WHERE bs.batch_id = b.batch_id) AS student_count
@@ -58,6 +59,7 @@ const getBatchById = async (req, res) => {
         u.email AS teacher_email,
         b.name,
         b.description,
+        b.fee,
         b.start_date,
         b.status,
         (SELECT COUNT(*) FROM batch_students bs WHERE bs.batch_id = b.batch_id) AS student_count
@@ -111,6 +113,7 @@ const createBatch = async (req, res) => {
     name,
     teacher_id,
     description = null,
+    fee = 0,
     start_date = null,
     status = "active",
   } = req.body;
@@ -120,6 +123,8 @@ const createBatch = async (req, res) => {
       message: "Batch name is required",
     });
   }
+
+  const numericFee = Number(fee) >= 0 ? Number(fee) : 0;
 
   try {
     let assignedTeacherId = teacher_id;
@@ -151,8 +156,8 @@ const createBatch = async (req, res) => {
 
     const batchId = crypto.randomUUID();
     await db.execute(
-      "INSERT INTO batches (batch_id, teacher_id, name, description, start_date, status) VALUES (?, ?, ?, ?, ?, ?)",
-      [batchId, assignedTeacherId, name, description, start_date, status]
+      "INSERT INTO batches (batch_id, teacher_id, name, description, fee, start_date, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      [batchId, assignedTeacherId, name, description, numericFee, start_date, status]
     );
 
     return res.status(201).json({
@@ -160,6 +165,7 @@ const createBatch = async (req, res) => {
       teacher_id: assignedTeacherId,
       name,
       description,
+      fee: numericFee,
       start_date,
       status,
       message: "Batch created successfully",
@@ -178,6 +184,7 @@ const updateBatch = async (req, res) => {
   const {
     name,
     description,
+    fee,
     start_date,
     status,
     teacher_id,
@@ -191,7 +198,7 @@ const updateBatch = async (req, res) => {
 
   try {
     const [batches] = await db.execute(
-      "SELECT batch_id, teacher_id, name, description, start_date, status FROM batches WHERE batch_id = ?",
+      "SELECT batch_id, teacher_id, name, description, fee, start_date, status FROM batches WHERE batch_id = ?",
       [id]
     );
 
@@ -220,15 +227,20 @@ const updateBatch = async (req, res) => {
     const updatedName = name || currentBatch.name;
     const updatedDescription =
       description !== undefined ? description : currentBatch.description;
+    const updatedFee =
+      fee !== undefined && !isNaN(Number(fee)) && Number(fee) >= 0
+        ? Number(fee)
+        : Number(currentBatch.fee || 0);
     const updatedStartDate =
       start_date !== undefined ? start_date : currentBatch.start_date;
     const updatedStatus = status || currentBatch.status;
 
     await db.execute(
-      "UPDATE batches SET name = ?, description = ?, start_date = ?, status = ?, teacher_id = ? WHERE batch_id = ?",
+      "UPDATE batches SET name = ?, description = ?, fee = ?, start_date = ?, status = ?, teacher_id = ? WHERE batch_id = ?",
       [
         updatedName,
         updatedDescription,
+        updatedFee,
         updatedStartDate,
         updatedStatus,
         updatedTeacherId,
@@ -241,6 +253,7 @@ const updateBatch = async (req, res) => {
       teacher_id: updatedTeacherId,
       name: updatedName,
       description: updatedDescription,
+      fee: updatedFee,
       start_date: updatedStartDate,
       status: updatedStatus,
       message: "Batch updated successfully",
