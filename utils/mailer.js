@@ -1,62 +1,66 @@
 const nodemailer = require("nodemailer");
 
 /**
- * Send email via Resend HTTPS API (Port 443 — NEVER blocked on Render or cloud hosts)
+ * Send email via Brevo HTTPS API (Port 443 — NEVER blocked on Render or cloud hosts)
+ * Allows sending from your verified Gmail address to ANY student email address for free (300/day).
  */
-const sendViaResend = async ({ to, subject, html, text }) => {
-  const apiKey = process.env.RESEND_API_KEY;
+const sendViaBrevo = async ({ to, subject, html, text }) => {
+  const apiKey = process.env.BREVO_API_KEY;
   if (!apiKey) return null;
 
   try {
-    const recipients = Array.isArray(to) ? to : [to];
-    
-    // Resend requires verified domain or onboarding@resend.dev
-    // Since public domains like gmail.com cannot be verified on Resend, default to onboarding@resend.dev
-    let sender = "CoachOS <onboarding@resend.dev>";
-    const customFrom = process.env.SMTP_FROM || "";
-    if (
-      customFrom &&
-      !customFrom.toLowerCase().includes("gmail.com") &&
-      !customFrom.toLowerCase().includes("yahoo.com") &&
-      !customFrom.toLowerCase().includes("outlook.com") &&
-      !customFrom.toLowerCase().includes("hotmail.com")
-    ) {
-      sender = customFrom;
+    const rawRecipients = Array.isArray(to) ? to : [to];
+    const recipients = rawRecipients
+      .map((email) => (typeof email === "string" ? email.trim() : email))
+      .filter(Boolean)
+      .map((email) => ({ email }));
+
+    if (recipients.length === 0) {
+      return { success: false, error: "No valid recipient email provided" };
     }
 
-    const replyTo = process.env.SMTP_USER || undefined;
+    // Sender email must be verified on Brevo (defaults to SMTP_USER or BREVO_SENDER_EMAIL)
+    const senderEmail =
+      process.env.BREVO_SENDER_EMAIL ||
+      process.env.SMTP_USER ||
+      "execlusivemart@gmail.com";
+
+    const senderName = process.env.BREVO_SENDER_NAME || "CoachOS";
 
     const payload = {
-      from: sender,
+      sender: {
+        name: senderName,
+        email: senderEmail.trim(),
+      },
       to: recipients,
       subject,
-      html,
-      text,
+      htmlContent: html,
+      textContent: text,
     };
 
-    if (replyTo) {
-      payload.reply_to = replyTo;
-    }
-
-    const response = await fetch("https://api.resend.com/emails", {
+    const response = await fetch("https://api.brevo.com/v3/smtp/email", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${apiKey.trim()}`,
+        "api-key": apiKey.trim(),
         "Content-Type": "application/json",
+        Accept: "application/json",
       },
       body: JSON.stringify(payload),
     });
 
     const data = await response.json();
     if (!response.ok) {
-      console.error("❌ Resend API error:", data);
-      return { success: false, error: data.message || "Resend API error" };
+      console.error("❌ Brevo API error:", data);
+      return {
+        success: false,
+        error: data.message || data.code || "Brevo API error",
+      };
     }
 
-    console.log("✅ Email sent successfully via Resend HTTPS:", data.id);
-    return { success: true, messageId: data.id };
+    console.log("✅ Email sent successfully via Brevo HTTPS:", data.messageId);
+    return { success: true, messageId: data.messageId };
   } catch (error) {
-    console.error("❌ Resend fetch error:", error.message);
+    console.error("❌ Brevo fetch error:", error.message);
     return { success: false, error: error.message };
   }
 };
@@ -94,15 +98,19 @@ const createTransporter = () => {
   });
 };
 
-// Verify SMTP connection on startup if configured
+// Verify email configuration on startup
 const verifyMailer = () => {
+  if (process.env.BREVO_API_KEY) {
+    console.log("✅ Mailer configured with Brevo HTTPS API (Port 443)");
+    return;
+  }
   if (process.env.RESEND_API_KEY) {
     console.log("✅ Mailer configured with Resend HTTPS API (Port 443)");
     return;
   }
   const t = createTransporter();
   if (!t) {
-    console.warn("⚠️  No email credentials found (RESEND_API_KEY or SMTP_USER/SMTP_PASS).");
+    console.warn("⚠️  No email credentials found (BREVO_API_KEY or SMTP_USER/SMTP_PASS).");
     return;
   }
   t.verify((err) => {
@@ -165,10 +173,10 @@ const sendNoticeEmail = async ({ to, title, content, batchName }) => {
       ? `"CoachOS" <${process.env.SMTP_USER}>`
       : '"CoachOS" <no-reply@coaching.edu>');
 
-  // 1. Try sending via Resend HTTPS (Port 443 — guaranteed to work on Render)
-  if (process.env.RESEND_API_KEY) {
-    return await sendViaResend({
-      to: recipients,
+  // 1. Send via Brevo HTTPS API (Port 443 — guaranteed on Render, sends to ANY recipient)
+  if (process.env.BREVO_API_KEY) {
+    return await sendViaBrevo({
+      to: Array.isArray(to) ? to : [to],
       subject,
       html,
       text: `${title}\n\n${content}`,
@@ -277,10 +285,10 @@ const sendFeeReminderEmail = async ({
       ? `"CoachOS" <${process.env.SMTP_USER}>`
       : '"CoachOS" <no-reply@coaching.edu>');
 
-  // 1. Try sending via Resend HTTPS (Port 443 — guaranteed on Render)
-  if (process.env.RESEND_API_KEY) {
-    return await sendViaResend({
-      to,
+  // 1. Send via Brevo HTTPS API (Port 443 — guaranteed on Render, sends to ANY recipient)
+  if (process.env.BREVO_API_KEY) {
+    return await sendViaBrevo({
+      to: [to],
       subject,
       html,
       text: `Dear ${studentName},\n\nYour monthly fee of ৳${amount} for ${month} is due. Please pay at your earliest convenience.\n\nUniversity CoachOS`,

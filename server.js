@@ -1,6 +1,7 @@
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
+
 const healthRoute = require("./routes/healthRoute");
 const authRoute = require("./routes/authRoute");
 const studentRoute = require("./routes/studentRoute");
@@ -36,8 +37,6 @@ app.use("/api/results", resultRoute);
 app.use("/api/fees", feeRoute);
 app.use("/api/leaderboard", leaderboardRoute);
 app.use("/api/dashboard", dashboardRoute);
-
-
 
 
 

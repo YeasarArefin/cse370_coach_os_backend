@@ -8,15 +8,15 @@ const getBatches = async (req, res) => {
   try {
     let query = `
       SELECT 
-        b.batch_id,
-        b.teacher_id,
-        u.name AS teacher_name,
-        u.email AS teacher_email,
-        b.name,
+      b.name,
         b.description,
         b.fee,
         b.start_date,
-        b.status,
+        b.status,   b.batch_id,
+        b.teacher_id,
+        u.name AS teacher_name,
+        u.email AS teacher_email,
+       
         (SELECT COUNT(*) FROM batch_students bs WHERE bs.batch_id = b.batch_id) AS student_count
       FROM batches b, teachers t, users u
       WHERE b.teacher_id = t.teacher_id 
