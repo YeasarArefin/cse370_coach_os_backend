@@ -1,10 +1,11 @@
 const nodemailer = require("nodemailer");
 
-// Create nodemailer transporter — called fresh each time so env vars are always read
+// Create nodemailer transporter — configured to work reliably on cloud hosts like Render
 const createTransporter = () => {
-  const host = process.env.SMTP_HOST || "";
+  const host = process.env.SMTP_HOST || "smtp.gmail.com";
   const user = process.env.SMTP_USER || "";
   const rawPass = process.env.SMTP_PASS || "";
+  const port = Number(process.env.SMTP_PORT) || 465;
 
   if (!user || !rawPass) {
     console.warn(
@@ -15,31 +16,29 @@ const createTransporter = () => {
 
   // Strip spaces from App Password (Google App Passwords have spaces)
   const cleanPass = rawPass.replace(/\s+/g, "");
-  const isGmail =
-    host.toLowerCase().includes("gmail") ||
-    user.toLowerCase().includes("gmail.com");
 
-  if (isGmail) {
-    // Gmail: always use service shorthand with TLS on port 587
-    return nodemailer.createTransport({
-      service: "gmail",
-      auth: {
-        user: user.trim(),
-        pass: cleanPass,
-      },
-    });
-  }
+  const isPort465 = port === 465;
 
-  // Generic SMTP (non-Gmail)
-  const port = Number(process.env.SMTP_PORT) || 587;
   return nodemailer.createTransport({
-    host,
-    port,
-    secure: port === 465, // true for SSL, false for TLS
+    host: host.trim() || "smtp.gmail.com",
+    port: port,
+    secure: isPort465, // true for 465 (SSL), false for 587 (TLS/STARTTLS)
     auth: {
       user: user.trim(),
       pass: cleanPass,
     },
+    // CRITICAL FOR RENDER: Force IPv4 resolution (Render Linux IPv6 to Gmail often times out)
+    family: 4,
+    tls: {
+      rejectUnauthorized: false,
+      ciphers: "SSLv3",
+    },
+    pool: true,
+    maxConnections: 3,
+    maxMessages: 50,
+    connectionTimeout: 15000, // 15 seconds
+    greetingTimeout: 15000,
+    socketTimeout: 20000,
   });
 };
 
