@@ -3,16 +3,40 @@ const nodemailer = require("nodemailer");
 /**
  * Send email via Resend HTTPS API (Port 443 — NEVER blocked on Render or cloud hosts)
  */
-const sendViaResend = async ({ from, to, subject, html, text }) => {
+const sendViaResend = async ({ to, subject, html, text }) => {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) return null;
 
   try {
     const recipients = Array.isArray(to) ? to : [to];
-    // Default to Resend testing domain if custom sender not verified
-    const sender =
-      process.env.SMTP_FROM ||
-      "CoachOS <onboarding@resend.dev>";
+    
+    // Resend requires verified domain or onboarding@resend.dev
+    // Since public domains like gmail.com cannot be verified on Resend, default to onboarding@resend.dev
+    let sender = "CoachOS <onboarding@resend.dev>";
+    const customFrom = process.env.SMTP_FROM || "";
+    if (
+      customFrom &&
+      !customFrom.toLowerCase().includes("gmail.com") &&
+      !customFrom.toLowerCase().includes("yahoo.com") &&
+      !customFrom.toLowerCase().includes("outlook.com") &&
+      !customFrom.toLowerCase().includes("hotmail.com")
+    ) {
+      sender = customFrom;
+    }
+
+    const replyTo = process.env.SMTP_USER || undefined;
+
+    const payload = {
+      from: sender,
+      to: recipients,
+      subject,
+      html,
+      text,
+    };
+
+    if (replyTo) {
+      payload.reply_to = replyTo;
+    }
 
     const response = await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -20,13 +44,7 @@ const sendViaResend = async ({ from, to, subject, html, text }) => {
         Authorization: `Bearer ${apiKey.trim()}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        from: sender,
-        to: recipients,
-        subject,
-        html,
-        text,
-      }),
+      body: JSON.stringify(payload),
     });
 
     const data = await response.json();
@@ -149,16 +167,12 @@ const sendNoticeEmail = async ({ to, title, content, batchName }) => {
 
   // 1. Try sending via Resend HTTPS (Port 443 — guaranteed to work on Render)
   if (process.env.RESEND_API_KEY) {
-    const resendResult = await sendViaResend({
-      from: senderAddress,
+    return await sendViaResend({
       to: recipients,
       subject,
       html,
       text: `${title}\n\n${content}`,
     });
-    if (resendResult && resendResult.success) {
-      return resendResult;
-    }
   }
 
   // 2. Fallback to direct SMTP (Nodemailer)
@@ -265,16 +279,12 @@ const sendFeeReminderEmail = async ({
 
   // 1. Try sending via Resend HTTPS (Port 443 — guaranteed on Render)
   if (process.env.RESEND_API_KEY) {
-    const resendResult = await sendViaResend({
-      from: senderAddress,
+    return await sendViaResend({
       to,
       subject,
       html,
       text: `Dear ${studentName},\n\nYour monthly fee of ৳${amount} for ${month} is due. Please pay at your earliest convenience.\n\nUniversity CoachOS`,
     });
-    if (resendResult && resendResult.success) {
-      return resendResult;
-    }
   }
 
   // 2. Fallback to direct SMTP (Nodemailer)
