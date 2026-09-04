@@ -1,6 +1,49 @@
 const nodemailer = require("nodemailer");
 
-// Create nodemailer transporter — configured to work reliably on cloud hosts like Render
+/**
+ * Send email via Resend HTTPS API (Port 443 — NEVER blocked on Render or cloud hosts)
+ */
+const sendViaResend = async ({ from, to, subject, html, text }) => {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) return null;
+
+  try {
+    const recipients = Array.isArray(to) ? to : [to];
+    // Default to Resend testing domain if custom sender not verified
+    const sender =
+      process.env.SMTP_FROM ||
+      "CoachOS <onboarding@resend.dev>";
+
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey.trim()}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: sender,
+        to: recipients,
+        subject,
+        html,
+        text,
+      }),
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      console.error("❌ Resend API error:", data);
+      return { success: false, error: data.message || "Resend API error" };
+    }
+
+    console.log("✅ Email sent successfully via Resend HTTPS:", data.id);
+    return { success: true, messageId: data.id };
+  } catch (error) {
+    console.error("❌ Resend fetch error:", error.message);
+    return { success: false, error: error.message };
+  }
+};
+
+// Create nodemailer transporter — configured for direct SMTP (Port 465 SSL or 587 TLS)
 const createTransporter = () => {
   const host = process.env.SMTP_HOST || "smtp.gmail.com";
   const user = process.env.SMTP_USER || "";
@@ -8,47 +51,48 @@ const createTransporter = () => {
   const port = Number(process.env.SMTP_PORT) || 465;
 
   if (!user || !rawPass) {
-    console.warn(
-      "⚠️  SMTP_USER or SMTP_PASS not set — emails will NOT be sent."
-    );
     return null;
   }
 
   // Strip spaces from App Password (Google App Passwords have spaces)
   const cleanPass = rawPass.replace(/\s+/g, "");
-
   const isPort465 = port === 465;
 
   return nodemailer.createTransport({
     host: host.trim() || "smtp.gmail.com",
     port: port,
-    secure: isPort465, // true for 465 (SSL), false for 587 (TLS/STARTTLS)
+    secure: isPort465, // true for 465 (SSL direct), false for 587 (TLS/STARTTLS)
     auth: {
       user: user.trim(),
       pass: cleanPass,
     },
-    // CRITICAL FOR RENDER: Force IPv4 resolution (Render Linux IPv6 to Gmail often times out)
-    family: 4,
+    family: 4, // Force IPv4 resolution on Linux
     tls: {
       rejectUnauthorized: false,
-      ciphers: "SSLv3",
     },
-    pool: true,
-    maxConnections: 3,
-    maxMessages: 50,
-    connectionTimeout: 15000, // 15 seconds
-    greetingTimeout: 15000,
-    socketTimeout: 20000,
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 15000,
   });
 };
 
-// Verify SMTP connection on startup (logs status without crashing)
+// Verify SMTP connection on startup if configured
 const verifyMailer = () => {
+  if (process.env.RESEND_API_KEY) {
+    console.log("✅ Mailer configured with Resend HTTPS API (Port 443)");
+    return;
+  }
   const t = createTransporter();
-  if (!t) return;
+  if (!t) {
+    console.warn("⚠️  No email credentials found (RESEND_API_KEY or SMTP_USER/SMTP_PASS).");
+    return;
+  }
   t.verify((err) => {
     if (err) {
-      console.error("❌ SMTP connection failed:", err.message);
+      console.error(
+        "⚠️  SMTP direct connection failed (Render free tier blocks SMTP ports 25/465/587):",
+        err.message
+      );
     } else {
       console.log("✅ SMTP connection verified — mailer is ready");
     }
@@ -56,6 +100,7 @@ const verifyMailer = () => {
 };
 
 verifyMailer();
+
 
 /**
  * Send notice notification email to recipient(s)
@@ -102,10 +147,25 @@ const sendNoticeEmail = async ({ to, title, content, batchName }) => {
       ? `"CoachOS" <${process.env.SMTP_USER}>`
       : '"CoachOS" <no-reply@coaching.edu>');
 
+  // 1. Try sending via Resend HTTPS (Port 443 — guaranteed to work on Render)
+  if (process.env.RESEND_API_KEY) {
+    const resendResult = await sendViaResend({
+      from: senderAddress,
+      to: recipients,
+      subject,
+      html,
+      text: `${title}\n\n${content}`,
+    });
+    if (resendResult && resendResult.success) {
+      return resendResult;
+    }
+  }
+
+  // 2. Fallback to direct SMTP (Nodemailer)
   const t = createTransporter();
   if (!t) {
-    console.warn("⚠️  Skipping notice email — SMTP not configured.");
-    return { success: false, error: "SMTP not configured" };
+    console.warn("⚠️  Skipping notice email — No email credentials configured.");
+    return { success: false, error: "No email credentials configured" };
   }
 
   try {
@@ -117,10 +177,10 @@ const sendNoticeEmail = async ({ to, title, content, batchName }) => {
       html,
     });
 
-    console.log("✅ Email sent successfully:", info.messageId);
+    console.log("✅ Email sent successfully via SMTP:", info.messageId);
     return { success: true, messageId: info.messageId };
   } catch (error) {
-    console.error("❌ Mailer send error:", error.message);
+    console.error("❌ Mailer SMTP send error:", error.message);
     return { success: false, error: error.message };
   }
 };
@@ -165,18 +225,19 @@ const sendFeeReminderEmail = async ({
             <span style="color: #64748b; font-size: 13px;">Enrolled Course Batch(es):</span>
             <strong style="color: #0f172a; margin-left: 6px;">${batchNames || "General"}</strong>
           </div>
-          ${dueDate
-      ? `<div style="margin-bottom: 8px;">
+          ${
+            dueDate
+              ? `<div style="margin-bottom: 8px;">
                   <span style="color: #64748b; font-size: 13px;">Due Date (based on admission date):</span>
                   <strong style="color: #0f172a; margin-left: 6px;">${dueDate}</strong>
                 </div>`
-      : ""
-    }
+              : ""
+          }
           <div style="border-top: 1px solid #e2e8f0; padding-top: 10px; margin-top: 10px;">
             <span style="font-weight: bold; color: #0f172a; font-size: 14px;">Total Payable Amount:</span>
             <strong style="color: #0f172a; font-size: 16px; margin-left: 8px;">৳${Number(
-      amount
-    ).toLocaleString()}</strong>
+              amount
+            ).toLocaleString()}</strong>
           </div>
         </div>
 
@@ -202,10 +263,25 @@ const sendFeeReminderEmail = async ({
       ? `"CoachOS" <${process.env.SMTP_USER}>`
       : '"CoachOS" <no-reply@coaching.edu>');
 
+  // 1. Try sending via Resend HTTPS (Port 443 — guaranteed on Render)
+  if (process.env.RESEND_API_KEY) {
+    const resendResult = await sendViaResend({
+      from: senderAddress,
+      to,
+      subject,
+      html,
+      text: `Dear ${studentName},\n\nYour monthly fee of ৳${amount} for ${month} is due. Please pay at your earliest convenience.\n\nUniversity CoachOS`,
+    });
+    if (resendResult && resendResult.success) {
+      return resendResult;
+    }
+  }
+
+  // 2. Fallback to direct SMTP (Nodemailer)
   const t = createTransporter();
   if (!t) {
-    console.warn("⚠️  Skipping fee reminder email — SMTP not configured.");
-    return { success: false, error: "SMTP not configured" };
+    console.warn("⚠️  Skipping fee reminder email — No email credentials configured.");
+    return { success: false, error: "No email credentials configured" };
   }
 
   try {
